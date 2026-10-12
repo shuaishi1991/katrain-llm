@@ -82,21 +82,29 @@ def completed_sentences(text, start):
 
 
 def split_sentences(text):
-    """Split speech into the pieces that should be highlighted one at a time."""
+    """Split speech into the pieces that should be highlighted one at a time.
+
+    Walk one sentence ending at a time. A finished commentary contains several
+    endings, and taking every ending at once would highlight the whole passage.
+    """
     parts = []
     start = 0
     text = text or ""
     while start < len(text):
-        chunk, index = completed_sentences(text, start)
-        if not chunk or index <= start:
+        end = None
+        for index in range(start, len(text)):
+            if text[index] in _SENTENCE_END:
+                end = index + 1
+                break
+        if end is None:
             rest = text[start:].strip()
             if rest:
                 parts.append(rest)
             break
-        piece = chunk.strip()
+        piece = text[start:end].strip()
         if piece:
             parts.append(piece)
-        start = index
+        start = end
     return parts
 
 
@@ -120,6 +128,19 @@ def speech_backend():
     if shutil.which("spd-say"):
         return "spd-say"
     return None
+
+
+def _hidden_window_kwargs():
+    """Keep a speech process from flashing a console window on Windows."""
+    if sys.platform != "win32":
+        return {}
+    kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    if hasattr(subprocess, "STARTUPINFO"):
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
 
 
 def _command(backend, lang):
@@ -262,6 +283,7 @@ class SpeechPlayer:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=env,
+                **_hidden_window_kwargs(),
             )
         except OSError:
             return

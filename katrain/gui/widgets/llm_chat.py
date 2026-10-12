@@ -224,11 +224,20 @@ class LLMChatPanel(BoxLayout):
 
         def work():
             parts = []
+            pending = {"text": "", "scheduled": False}
 
             def on_delta(piece):
                 parts.append(piece)
-                shown = "".join(parts)
-                Clock.schedule_once(lambda _dt, text=shown: self._show_partial(node, token, text), 0)
+                pending["text"] = "".join(parts)
+                if pending["scheduled"]:
+                    return
+                pending["scheduled"] = True
+
+                def flush(_dt):
+                    pending["scheduled"] = False
+                    self._show_partial(node, token, pending["text"])
+
+                Clock.schedule_once(flush, 0.08)
 
             try:
                 text = request_chat(cfg["api_base"], cfg["api_key"], cfg["model"], messages, on_delta=on_delta)

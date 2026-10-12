@@ -193,6 +193,7 @@ def test_scroll_follows_only_while_the_reader_stays_at_the_bottom():
     from katrain.gui.speech import highlight_span, split_sentences
 
     assert split_sentences("先说这句。再说那句") == ["先说这句。", "再说那句"]
+    assert split_sentences("先说这句。再说那句。") == ["先说这句。", "再说那句。"]
     assert highlight_span("先说这句。再说那句", "再说那句") == ("先说这句。", "再说那句", "")
 
 
