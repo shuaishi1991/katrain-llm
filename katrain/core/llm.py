@@ -123,13 +123,18 @@ def describe_position(node, mode):
         "grade": _grade_for_played(node, candidates, played) if mode == "played" else None,
         "best_other": _best_other(candidates, played) if mode == "played" else None,
         "ownership_sum": _ownership_sum(node if mode == "played" else source),
-        "recent": _recent_moves(node if mode == "played" else source),
+        "moves": _moves_along(node if mode == "played" else source),
         "candidates": [_candidate_view(cand, index, candidates) for index, cand in enumerate(chosen, start=1)],
         "next_moves": _next_moves(node) if mode == "played" else [],
     }
 
 
-def build_user_prompt(snapshot, language_code):
+def position_context(snapshot, language_code):
+    """Facts shared by commentary and follow-up questions.
+
+    The evaluation numbers stay here so the model can judge the position.
+    The spoken answer is told separately not to recite them.
+    """
     lines = [
         "Use only the KataGo analysis below. Do not invent moves, variations, or evaluations.",
         "",
@@ -144,18 +149,24 @@ def build_user_prompt(snapshot, language_code):
     if snapshot["mode"] == "played":
         lines.append("")
         lines.append(_next_section(snapshot))
-    if snapshot.get("recent"):
+    moves = snapshot.get("moves") or []
+    if moves:
         lines.append("")
-        lines.append("Recent moves, for context only, not extra analysis: " + ", ".join(snapshot["recent"]))
-    lines.append("")
-    lines.append(_task_instructions(snapshot["mode"], language_code))
+        lines.append("Moves from the start of this variation through the current node:")
+        lines.extend(f"{index}. {move}" for index, move in enumerate(moves, start=1))
     return "\n".join(lines)
+
+
+def build_user_prompt(snapshot, language_code):
+    return "\n\n".join([position_context(snapshot, language_code), _task_instructions(snapshot["mode"], language_code)])
 
 
 def followup_system(language_code):
     name = language_name(language_code)
     return (
         "You are a Go teacher continuing a conversation about one move. "
+        "The KataGo facts in the conversation are the same facts used for the commentary, "
+        "including the move order and the evaluation numbers. "
         "The earlier messages are the commentary and questions already written for this move. "
         "Answer only what the latest message asks. "
         "A greeting gets a short greeting and nothing about the board. "
@@ -165,16 +176,28 @@ def followup_system(language_code):
     )
 
 
-def followup_messages(history, question, language_code):
-    """Continue this move's commentary. The history is that text, not a new analysis."""
+def followup_messages(history, question, language_code, snapshot=None):
+    """Continue this move. The position facts match the commentary, plus this move's own chat."""
     question = (question or "").strip()
     prior = [
         {"role": item["role"], "content": item["content"]}
         for item in history or []
         if item.get("role") in ("user", "assistant") and item.get("content")
     ]
+    messages = [{"role": "system", "content": followup_system(language_code)}]
+    if snapshot:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    position_context(snapshot, language_code)
+                    + "\n\nThese facts are context for the question. Do not recite the calculation numbers, "
+                    "and do not start a new commentary unless asked."
+                ),
+            }
+        )
     return [
-        {"role": "system", "content": followup_system(language_code)},
+        *messages,
         *prior[-HISTORY_TURNS:],
         {"role": "user", "content": question},
     ]
@@ -547,10 +570,11 @@ def _ownership_sum(node):
         return None
 
 
-def _recent_moves(node, limit=8):
+def _moves_along(node):
+    """Every stone from the start of this variation through this node."""
     moves = []
     current = node
-    while current is not None and getattr(current, "move", None) is not None and len(moves) < limit:
+    while current is not None and getattr(current, "move", None) is not None:
         moves.append(f"{current.move.player} {current.move.gtp()}")
         current = getattr(current, "parent", None)
     moves.reverse()

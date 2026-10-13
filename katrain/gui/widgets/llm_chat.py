@@ -206,7 +206,8 @@ class LLMChatPanel(BoxLayout):
             node._llm_token = token
         if job["kind"] == "ask":
             history = list(getattr(node, "llm_thread", None) or [])
-            messages = followup_messages(history, job["text"], language)
+            snapshot = describe_position(node, "played")
+            messages = followup_messages(history, job["text"], language, snapshot)
             header = None
             kind = "ask"
         else:

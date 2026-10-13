@@ -114,7 +114,10 @@ def test_commentary_judges_the_played_move_and_the_next_recommendation():
     assert "不要写出目差、胜率" in text
     assert "rank 1: F3 [this is the next move KataGo recommends]" in text
     assert "第二、第三选点" in text
-    assert "A1" not in text
+    assert "A1" not in text.split("Moves from the start")[0]
+    assert "Moves from the start of this variation through the current node:" in text
+    assert "1. B R14" in text
+    assert "Black score lead" in text
 
 
 def test_large_loss_is_a_blunder_and_a_unique_best_move_is_brilliant():
@@ -148,6 +151,19 @@ def test_candidate_mode_explains_why_the_next_point_is_recommended():
     assert "this is the move that was played" not in text
 
 
+def test_the_move_list_reaches_the_first_stone_of_this_variation():
+    from katrain.core.llm import _moves_along
+
+    node = _Node()
+    for index in range(1, 12):
+        player = "B" if index % 2 else "W"
+        node = _Node(move=_Move(f"K{index}", player), parent=node, depth=index)
+    moves = _moves_along(node)
+    assert moves[0] == "B K1"
+    assert moves[-1] == "B K11"
+    assert len(moves) == 11
+
+
 def test_missing_katago_candidates_are_not_explained():
     node = _Node(move=_Move("D4", "B"), parent=_Node(), depth=1)
     assert not analysis_ready(node, "played", partial_ok=True)
@@ -161,19 +177,23 @@ def test_followup_uses_this_moves_commentary_as_history():
         {"role": "user", "content": "你好", "kind": "ask"},
         {"role": "assistant", "content": "你好，想问这一手的哪里？", "kind": "ask"},
     ]
-    messages = followup_messages(history, "第二选点是什么意思？", "cn")
+    messages = followup_messages(history, "第二选点是什么意思？", "cn", describe_position(_position("R14"), "played"))
 
     assert messages[0]["role"] == "system"
     assert "Answer only what the latest message asks" in messages[0]["content"]
-    assert "rank 2" not in messages[0]["content"]
-    assert [item["content"] for item in messages[1:]] == [
+    assert "same facts used for the commentary" in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    assert "Points given up by the played move: 1.70" in messages[1]["content"]
+    assert "1. B R14" in messages[1]["content"]
+    assert "rank 1: F3" in messages[1]["content"]
+    assert [item["content"] for item in messages[2:-1]] == [
         "第12手 黑 R14  俗手",
         "这一手是在拆边。",
         "你好",
         "你好，想问这一手的哪里？",
-        "第二选点是什么意思？",
     ]
-    greeting = followup_messages(history, "你好", "cn")
+    assert messages[-1] == {"role": "user", "content": "第二选点是什么意思？"}
+    greeting = followup_messages(history, "你好", "cn", describe_position(_position("R14"), "played"))
     assert greeting[-1] == {"role": "user", "content": "你好"}
     assert "KataGo" not in greeting[-1]["content"]
 
