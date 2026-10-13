@@ -1,11 +1,13 @@
 """Read commentary aloud with the operating system's speech tools."""
 
+import time
 import ctypes
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 
 _SENTENCE_END = set("。！？!?；;\n")
@@ -51,7 +53,12 @@ try {
         $culture
     )
 } catch {}
-$synth.Speak([Console]::In.ReadToEnd())
+if ($env:KATRAIN_SPEECH_FILE) {
+    $spoken = [IO.File]::ReadAllText($env:KATRAIN_SPEECH_FILE, [Text.UTF8Encoding]::new($false))
+} else {
+    $spoken = [Console]::In.ReadToEnd()
+}
+if ($spoken) { $synth.Speak($spoken) }
 """
 
 
@@ -118,7 +125,29 @@ def highlight_span(text, span):
     return text[:index], text[index : index + len(span)], text[index + len(span) :]
 
 
-def speech_backend():
+_NEURAL_VOICES = {
+    "llm:voice:xiaoxiao": "zh-CN-XiaoxiaoNeural",
+    "llm:voice:yunxi": "zh-CN-YunxiNeural",
+    "llm:voice:xiaoyi": "zh-CN-XiaoyiNeural",
+}
+
+
+def neural_voice_name(voice):
+    """Edge neural voice for a settings key. System speech has no neural voice."""
+    if voice in (None, "llm:voice:system"):
+        return None
+    return _NEURAL_VOICES.get(voice, _NEURAL_VOICES["llm:voice:xiaoxiao"])
+
+
+def _edge_tts_available():
+    try:
+        import edge_tts  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _system_backend():
     if sys.platform == "win32":
         return "powershell" if shutil.which("powershell") else None
     if shutil.which("espeak-ng"):
@@ -128,6 +157,25 @@ def speech_backend():
     if shutil.which("spd-say"):
         return "spd-say"
     return None
+
+
+def speech_backend(voice=None):
+    if neural_voice_name(voice) and _edge_tts_available():
+        return "neural"
+    return _system_backend()
+
+
+def _write_neural_audio(text, voice, path):
+    import asyncio
+
+    import edge_tts
+
+    name = neural_voice_name(voice)
+
+    async def _save():
+        await edge_tts.Communicate(text, name).save(path)
+
+    asyncio.run(_save())
 
 
 def _hidden_window_kwargs():
@@ -169,12 +217,14 @@ class SpeechPlayer:
 
     def __init__(self, on_state=None, on_chunk=None):
         self.lang = "en"
+        self.voice = "llm:voice:xiaoxiao"
         self._on_state = on_state
         self._on_chunk = on_chunk
         self._token = 0
         self._queue = []
         self._lock = threading.Lock()
         self._proc = None
+        self._player = None
         self._worker = None
         self._paused = False
         self._current_text = None
@@ -190,6 +240,9 @@ class SpeechPlayer:
             self._current_text = None
             proc = self._proc
             self._proc = None
+            player = self._player
+            self._player = None
+        self._close_player(player)
         self._kill(proc)
         try:
             _cancel_speech_dispatcher()
@@ -202,11 +255,12 @@ class SpeechPlayer:
         with self._lock:
             if self._paused:
                 return
-            if self._proc is None and not self._queue and self._current_text is None:
+            if self._proc is None and self._player is None and not self._queue and self._current_text is None:
                 return
             self._paused = True
             self._gate.clear()
             proc = self._proc
+            player = self._player
             current = self._current_text
             token = self._token
             replay = speech_backend() == "spd-say" and current
@@ -214,7 +268,12 @@ class SpeechPlayer:
                 self._queue.insert(0, (token, current))
                 self._proc = None
                 self._current_text = None
-        if replay:
+        if player is not None:
+            try:
+                player.set_pause(True)
+            except Exception:
+                pass
+        elif replay:
             self._kill(proc)
             try:
                 _cancel_speech_dispatcher()
@@ -230,13 +289,20 @@ class SpeechPlayer:
                 return
             self._paused = False
             proc = self._proc
+            player = self._player
             self._gate.set()
-        _freeze(proc, False)
+        if player is not None:
+            try:
+                player.set_pause(False)
+            except Exception:
+                pass
+        else:
+            _freeze(proc, False)
         self._emit("speaking")
 
     def enqueue(self, text):
         text = (text or "").strip()
-        if not text or speech_backend() is None:
+        if not text or speech_backend(self.voice) is None:
             return False
         with self._lock:
             self._queue.append((self._token, text))
@@ -269,41 +335,155 @@ class SpeechPlayer:
             self._emit("idle")
             self._emit_chunk(None)
 
+    def _close_player(self, player):
+        if player is None:
+            return
+        try:
+            player.close_player()
+        except Exception:
+            pass
+
+    def _speak_neural(self, token, text):
+        """Speak with a neural voice. Returns False when synthesis fails."""
+        handle, path = tempfile.mkstemp(prefix="katrain-speech-", suffix=".mp3")
+        os.close(handle)
+        try:
+            _write_neural_audio(text, self.voice, path)
+        except Exception:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return False
+        with self._lock:
+            if token != self._token or self._paused:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                if self._paused and token == self._token:
+                    self._queue.insert(0, (token, text))
+                return True
+        try:
+            from ffpyplayer.player import MediaPlayer
+
+            player = MediaPlayer(path, ff_opts={"vn": True, "sn": True})
+        except Exception:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return False
+        with self._lock:
+            if token != self._token or self._paused:
+                self._close_player(player)
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                if self._paused and token == self._token:
+                    self._queue.insert(0, (token, text))
+                return True
+            self._player = player
+        self._emit_chunk(text)
+        paused = False
+        while True:
+            with self._lock:
+                if token != self._token or self._player is not player:
+                    break
+                want_pause = self._paused
+            if want_pause != paused:
+                try:
+                    player.set_pause(want_pause)
+                except Exception:
+                    break
+                paused = want_pause
+            if want_pause:
+                time.sleep(0.05)
+                continue
+            try:
+                _frame, val = player.get_frame()
+            except Exception:
+                break
+            if val == "eof":
+                break
+            if val == "paused":
+                time.sleep(0.05)
+                continue
+            if isinstance(val, (int, float)) and val > 0:
+                time.sleep(min(val, 0.1))
+            else:
+                time.sleep(0.01)
+        with self._lock:
+            owned = self._player is player
+            if owned:
+                self._player = None
+        if owned:
+            self._close_player(player)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+
     def _speak(self, token, text):
-        backend = speech_backend()
+        if speech_backend(self.voice) == "neural" and self._speak_neural(token, text):
+            return
+        backend = _system_backend()
         command = _command(backend, self.lang)
         if command is None:
             return
         env = os.environ.copy()
         env["KATRAIN_SPEECH_CULTURE"] = _CULTURE.get(self.lang, "en-US")
+        speech_file = None
+        # A hidden PowerShell window has no console, so reading stdin there
+        # never sees the end of the text and the next sentence never starts.
+        if backend == "powershell":
+            handle, speech_file = tempfile.mkstemp(prefix="katrain-speech-", suffix=".txt")
+            with os.fdopen(handle, "w", encoding="utf-8") as output:
+                output.write(text)
+            env["KATRAIN_SPEECH_FILE"] = speech_file
         try:
             proc = subprocess.Popen(
                 command,
-                stdin=subprocess.PIPE,
+                stdin=subprocess.DEVNULL if backend == "powershell" else subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=env,
                 **_hidden_window_kwargs(),
             )
         except OSError:
+            if speech_file:
+                os.remove(speech_file)
             return
         with self._lock:
             if token != self._token or self._paused:
                 self._kill(proc)
                 if self._paused and token == self._token and speech_backend() != "spd-say":
                     self._queue.insert(0, (token, text))
+                if speech_file:
+                    try:
+                        os.remove(speech_file)
+                    except OSError:
+                        pass
                 return
             self._proc = proc
         self._emit_chunk(text)
-        try:
-            proc.stdin.write(text.encode("utf-8"))
-            proc.stdin.close()
-        except (BrokenPipeError, OSError, ValueError):
-            self._kill(proc)
+        if backend != "powershell":
+            try:
+                proc.stdin.write(text.encode("utf-8"))
+                proc.stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                self._kill(proc)
         proc.wait()
         with self._lock:
             if self._proc is proc:
                 self._proc = None
+        if speech_file:
+            try:
+                os.remove(speech_file)
+            except OSError:
+                pass
 
     def _emit(self, state):
         if self._on_state is not None:

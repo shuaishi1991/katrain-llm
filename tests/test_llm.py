@@ -194,6 +194,12 @@ def test_scroll_follows_only_while_the_reader_stays_at_the_bottom():
 
     assert split_sentences("先说这句。再说那句") == ["先说这句。", "再说那句"]
     assert split_sentences("先说这句。再说那句。") == ["先说这句。", "再说那句。"]
+    from katrain.gui.speech import neural_voice_name
+
+    assert neural_voice_name("llm:voice:xiaoxiao") == "zh-CN-XiaoxiaoNeural"
+    assert neural_voice_name("llm:voice:yunxi") == "zh-CN-YunxiNeural"
+    assert neural_voice_name("llm:voice:system") is None
+    assert neural_voice_name(None) is None
     assert highlight_span("先说这句。再说那句", "再说那句") == ("先说这句。", "再说那句", "")
 
 

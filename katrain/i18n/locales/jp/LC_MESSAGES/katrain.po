@@ -1120,6 +1120,21 @@ msgstr "毎回の着手を解説する"
 msgid "llm:speak"
 msgstr "音声で読む"
 
+msgid "llm:voice"
+msgstr "読み上げ音声"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "シャオシャオ（自然な女声）"
+
+msgid "llm:voice:yunxi"
+msgstr "ユンシー（自然な男声）"
+
+msgid "llm:voice:xiaoyi"
+msgstr "シャオイー（自然な女声）"
+
+msgid "llm:voice:system"
+msgstr "システムの音声"
+
 msgid "llm:read"
 msgstr "読む"
 

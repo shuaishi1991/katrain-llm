@@ -177,7 +177,8 @@
         "api_key": "",
         "model": "",
         "auto_comment": true,
-        "speak": false
+        "speak": false,
+        "voice": "llm:voice:xiaoxiao"
     },
     "ui_state": {
         "restoresize": true,

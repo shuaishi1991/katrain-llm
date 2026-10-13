@@ -1174,6 +1174,21 @@ msgstr "Коментувати кожен хід"
 msgid "llm:speak"
 msgstr "Читати вголос"
 
+msgid "llm:voice"
+msgstr "Голос"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "Сяосяо (природний жіночий)"
+
+msgid "llm:voice:yunxi"
+msgstr "Юньсі (природний чоловічий)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "Сяої (природний жіночий)"
+
+msgid "llm:voice:system"
+msgstr "Системний голос"
+
 msgid "llm:read"
 msgstr "Читати"
 

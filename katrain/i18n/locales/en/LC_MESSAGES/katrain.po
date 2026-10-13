@@ -1161,6 +1161,21 @@ msgstr "Comment after every move"
 msgid "llm:speak"
 msgstr "Read commentary aloud"
 
+msgid "llm:voice"
+msgstr "Voice"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "Xiaoxiao (natural female)"
+
+msgid "llm:voice:yunxi"
+msgstr "Yunxi (natural male)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "Xiaoyi (natural female)"
+
+msgid "llm:voice:system"
+msgstr "System voice"
+
 msgid "llm:read"
 msgstr "Read"
 

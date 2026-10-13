@@ -1158,6 +1158,21 @@ msgstr "Jeden Zug kommentieren"
 msgid "llm:speak"
 msgstr "Kommentar vorlesen"
 
+msgid "llm:voice"
+msgstr "Stimme"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "Xiaoxiao (natürliche Frauenstimme)"
+
+msgid "llm:voice:yunxi"
+msgstr "Yunxi (natürliche Männerstimme)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "Xiaoyi (natürliche Frauenstimme)"
+
+msgid "llm:voice:system"
+msgstr "Systemstimme"
+
 msgid "llm:read"
 msgstr "Lesen"
 

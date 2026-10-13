@@ -1057,6 +1057,21 @@ msgstr "매 수마다 해설"
 msgid "llm:speak"
 msgstr "음성으로 읽기"
 
+msgid "llm:voice"
+msgstr "낭독 음성"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "샤오샤오 (자연스러운 여성)"
+
+msgid "llm:voice:yunxi"
+msgstr "윈시 (자연스러운 남성)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "샤오이 (자연스러운 여성)"
+
+msgid "llm:voice:system"
+msgstr "시스템 음성"
+
 msgid "llm:read"
 msgstr "읽기"
 

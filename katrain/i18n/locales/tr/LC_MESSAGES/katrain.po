@@ -1188,6 +1188,21 @@ msgstr "Her hamleyi yorumla"
 msgid "llm:speak"
 msgstr "Yorumu sesli oku"
 
+msgid "llm:voice"
+msgstr "Ses"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "Xiaoxiao (doğal kadın)"
+
+msgid "llm:voice:yunxi"
+msgstr "Yunxi (doğal erkek)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "Xiaoyi (doğal kadın)"
+
+msgid "llm:voice:system"
+msgstr "Sistem sesi"
+
 msgid "llm:read"
 msgstr "Oku"
 

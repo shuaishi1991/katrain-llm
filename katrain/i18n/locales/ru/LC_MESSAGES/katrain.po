@@ -1087,6 +1087,21 @@ msgstr "Комментировать каждый ход"
 msgid "llm:speak"
 msgstr "Читать вслух"
 
+msgid "llm:voice"
+msgstr "Голос"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "Сяосяо (естественный женский)"
+
+msgid "llm:voice:yunxi"
+msgstr "Юньси (естественный мужской)"
+
+msgid "llm:voice:xiaoyi"
+msgstr "Сяои (естественный женский)"
+
+msgid "llm:voice:system"
+msgstr "Системный голос"
+
 msgid "llm:read"
 msgstr "Читать"
 

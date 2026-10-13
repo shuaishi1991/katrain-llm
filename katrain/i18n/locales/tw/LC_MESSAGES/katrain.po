@@ -1092,6 +1092,21 @@ msgstr "每下一手棋自動解說"
 msgid "llm:speak"
 msgstr "語音播報"
 
+msgid "llm:voice"
+msgstr "朗讀聲音"
+
+msgid "llm:voice:xiaoxiao"
+msgstr "曉曉（自然女聲）"
+
+msgid "llm:voice:yunxi"
+msgstr "雲希（自然男聲）"
+
+msgid "llm:voice:xiaoyi"
+msgstr "曉伊（自然女聲）"
+
+msgid "llm:voice:system"
+msgstr "系統語音"
+
 msgid "llm:read"
 msgstr "朗讀"
 

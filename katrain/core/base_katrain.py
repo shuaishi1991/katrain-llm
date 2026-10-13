@@ -94,6 +94,7 @@ class KaTrainBase:
             "model": "",
             "auto_comment": True,
             "speak": False,
+            "voice": "llm:voice:xiaoxiao",
         }
         current = self._config.setdefault("llm", {})
         for key, value in defaults.items():

@@ -390,6 +390,7 @@ class LLMChatPanel(BoxLayout):
             return
         self._speech_hold = True
         self._speaker.lang = i18n.lang or "en"
+        self._speaker.voice = self._cfg().get("voice") or "llm:voice:xiaoxiao"
         for sentence in split_sentences(text):
             self._speaker.enqueue(sentence)
 
@@ -415,6 +416,7 @@ class LLMChatPanel(BoxLayout):
         if not pending.strip():
             return
         self._speaker.lang = i18n.lang or "en"
+        self._speaker.voice = self._cfg().get("voice") or "llm:voice:xiaoxiao"
         for sentence in split_sentences(pending):
             self._speaker.enqueue(sentence)
 
@@ -480,6 +482,7 @@ class LLMChatPanel(BoxLayout):
             "enabled": bool(cfg.get("enabled")),
             "auto_comment": bool(cfg.get("auto_comment", True)),
             "speak": bool(cfg.get("speak", False)),
+            "voice": cfg.get("voice") or "llm:voice:xiaoxiao",
             "api_base": (cfg.get("api_base") or "").strip(),
             "api_key": (cfg.get("api_key") or "").strip(),
             "model": (cfg.get("model") or "").strip(),
