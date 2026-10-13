@@ -565,12 +565,6 @@
             padding_x: dp(2)
             on_press: root.explain_current('played')
         SizedRoundedRectangleButton:
-            text: i18n._('llm:resume') if root.speech_state == 'paused' else (i18n._('llm:pause') if root.speech_state == 'speaking' else i18n._('llm:read'))
-            size_hint: 1, 1
-            _font_size: sp(13)
-            padding_x: dp(2)
-            on_press: root.toggle_speech()
-        SizedRoundedRectangleButton:
             text: i18n._('llm:clear')
             size_hint: 1, 1
             _font_size: sp(13)
@@ -580,23 +574,25 @@
         id: scroll
         markup: True
         line_height: 1.25
+        on_ref_press: root.read_paragraph(args[1])
         size_hint_y: 1 if root.active else None
         height: 0
         opacity: 1 if root.active else 0
         disabled: not root.active
     BoxLayout:
         size_hint_y: None
-        height: dp(36) if root.active else 0
+        height: dp(52) if root.active else 0
         opacity: 1 if root.active else 0
         disabled: not root.active
         spacing: CP_SMALL_SPACING
-        TextInput:
+        ChatInput:
             id: chat_input
+            lang_change_tracking: i18n._('')
             hint_text: i18n._('llm:input-hint')
             multiline: False
             write_tab: False
             font_size: sp(Theme.NOTES_FONT_SIZE)
-            padding: dp(8), dp(8)
+            padding: dp(10), dp(8)
             background_normal: ''
             background_active: ''
             background_color: Theme.LIGHTER_BACKGROUND_COLOR

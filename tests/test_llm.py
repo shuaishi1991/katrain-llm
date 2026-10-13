@@ -528,6 +528,26 @@ def test_a_sentence_queued_after_playback_ends_is_still_spoken(monkeypatch):
     assert spoken == ["第一句。", "第二句。"]
 
 
+def test_a_finished_paragraph_gets_a_speaker_and_the_open_one_does_not():
+    from katrain.gui.speech import paragraph_parts
+    from katrain.gui.widgets.llm_chat import assistant_markup, ime_anchor
+
+    assert paragraph_parts("这一手。\n\n下一手还在写", False) == (["这一手。"], "下一手还在写")
+    assert paragraph_parts("这一手。\n\n下一手。", True) == (["这一手。", "下一手。"], "")
+    assert paragraph_parts("这一手。\n\n下一手。\n\n", False) == (["这一手。", "下一手。"], "")
+    assert paragraph_parts("还在写", False) == ([], "还在写")
+
+    speakable = []
+    markup = assistant_markup("这一手。\n\n下一手还在写", False, speakable, None, None)
+    assert speakable == ["这一手。"]
+    assert "[ref=0]" in markup
+    assert "下一手还在写" in markup
+    assert markup.count("[ref=") == 1
+
+    assert ime_anchor(40, 100, 24, 800) == (40, 700, 24, 24)
+    assert ime_anchor(40, 900, 24, 800)[1] == 0
+
+
 def test_settings_require_endpoint_key_and_model():
     assert not settings_ready({"enabled": True, "api_base": "https://api.openai.com/v1", "api_key": "", "model": "m"})
     assert settings_ready(

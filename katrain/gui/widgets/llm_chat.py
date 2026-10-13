@@ -1,12 +1,18 @@
 """Chat panel that explains KataGo's move choices."""
 
+import ctypes
+import glob
+import os
+import sys
 import threading
 import time
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.properties import BooleanProperty, ObjectProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.textinput import TextInput
 
 from katrain.core.lang import i18n
 from katrain.core.llm import (
@@ -23,12 +29,10 @@ from katrain.core.llm import (
 )
 from katrain.gui.speech import (
     SpeechPlayer,
-    completed_sentences,
     doubao_ready,
-    highlight_span,
+    paragraph_parts,
     should_follow_scroll,
     speech_backend,
-    split_sentences,
 )
 from katrain.gui.theme import Theme, to_hexcol
 
@@ -38,10 +42,119 @@ USER_COLOR = to_hexcol(Theme.SCORE_COLOR)
 STATUS_COLOR = to_hexcol(Theme.POINTLOSS_COLOR)
 ERROR_COLOR = to_hexcol(Theme.ERROR_BORDER_COLOR)
 SPEECH_COLOR = to_hexcol([0.96, 0.78, 0.42, 1])
+ICON_COLOR = to_hexcol([0.62, 0.66, 0.70, 1])
+SPEAKER_ICON = "♪"
 
 
 def escape_markup(text):
     return (text or "").replace("&", "&amp;").replace("[", "\\[").replace("]", "\\]")
+
+
+def ime_anchor(cursor_x, line_top, line_height, window_height):
+    """Caret rectangle for the input method, origin at the top-left of the window.
+
+    Kivy measures the line from the bottom of the window. The candidate list
+    uses the other direction. Without this rectangle the candidates open at
+    the corner of the window.
+    """
+    height = max(int(line_height), 1)
+    top = int(line_top)
+    return int(cursor_x), max(0, int(window_height) - top), height, height
+
+
+class _SDLRect(ctypes.Structure):
+    _fields_ = [
+        ("x", ctypes.c_int),
+        ("y", ctypes.c_int),
+        ("w", ctypes.c_int),
+        ("h", ctypes.c_int),
+    ]
+
+
+def _sdl_library():
+    """The SDL2 that this process already uses to draw the window."""
+    cached = getattr(_sdl_library, "lib", None)
+    if cached is not None:
+        return cached or None
+    paths = []
+    if sys.platform == "win32":
+        kernel = ctypes.windll.kernel32
+        kernel.GetModuleHandleW.restype = ctypes.c_void_p
+        handle = kernel.GetModuleHandleW("SDL2.dll")
+        if handle:
+            library = ctypes.WinDLL("SDL2.dll", handle=handle)
+            _sdl_library.lib = library
+            return library
+        try:
+            import kivy_deps.sdl2 as sdl2_dep
+
+            paths.extend(glob.glob(os.path.join(os.path.dirname(sdl2_dep.__file__), "**", "SDL2.dll"), recursive=True))
+        except Exception:
+            pass
+        paths.append("SDL2.dll")
+    else:
+        import kivy
+
+        bundled = os.path.abspath(os.path.join(os.path.dirname(kivy.__file__), os.pardir, "Kivy.libs"))
+        paths.extend(sorted(glob.glob(os.path.join(bundled, "libSDL2-2*.so*"))))
+        paths.append("libSDL2-2.0.so.0")
+    for path in paths:
+        try:
+            library = ctypes.CDLL(path)
+        except OSError:
+            continue
+        if hasattr(library, "SDL_SetTextInputRect"):
+            _sdl_library.lib = library
+            return library
+    _sdl_library.lib = False
+    return None
+
+
+def place_ime_cursor(cursor_x, line_top, line_height, window_height):
+    library = _sdl_library()
+    if library is None:
+        return
+    x, y, width, height = ime_anchor(cursor_x, line_top, line_height, window_height)
+    rect = _SDLRect(x, y, width, height)
+    library.SDL_SetTextInputRect(ctypes.byref(rect))
+
+
+class ChatInput(TextInput):
+    """One-line question box that can show Chinese input-method text.
+
+    The default font has no Chinese glyphs, so the characters being composed
+    never appear. The box also has to be tall enough for a Chinese line, and
+    the caret position has to be handed to the input method or the candidate
+    list opens in the wrong place.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("font_name", i18n.font_name)
+        super().__init__(**kwargs)
+        self.bind(focus=self._place_ime, cursor_pos=self._place_ime, pos=self._place_ime, size=self._place_ime)
+
+    def _place_ime(self, *_args):
+        if not self.focus:
+            return
+        place_ime_cursor(self.cursor_pos[0], self.cursor_pos[1], max(self.line_height, self.font_size), Window.height)
+
+
+def assistant_markup(text, complete, speakable, speaking_index, speaking_text):
+    """One speaker after each finished paragraph. The open paragraph has none."""
+    finished, tail = paragraph_parts(text, complete)
+    blocks = []
+    for paragraph in finished:
+        index = len(speakable)
+        speakable.append(paragraph)
+        body = escape_markup(paragraph)
+        active = index == speaking_index and paragraph == speaking_text
+        if active:
+            body = f"[color={SPEECH_COLOR}]{body}[/color]"
+        color = SPEECH_COLOR if active else ICON_COLOR
+        blocks.append(f"{body}\n[ref={index}][color={color}]{SPEAKER_ICON}[/color][/ref]")
+    if tail:
+        blocks.append(escape_markup(tail))
+    return "\n\n".join(blocks)
 
 
 class LLMChatPanel(BoxLayout):
@@ -67,9 +180,8 @@ class LLMChatPanel(BoxLayout):
         self._status = None
         self._error = None
         self._jump_bottom = True
-        self._spoken_index = 0
-        self._spoken_token = None
-        self._speech_hold = False
+        self._speakable = []
+        self._speaking_index = None
         self._speaking_span = None
         self._speaker = SpeechPlayer(on_state=self._speech_state, on_chunk=self._speech_chunk)
         Clock.schedule_interval(self._pump, 0.4)
@@ -88,8 +200,6 @@ class LLMChatPanel(BoxLayout):
         self._status = None
         self._error = None
         self._jump_bottom = True
-        self._spoken_token = None
-        self._speech_hold = False
         self._speaker.stop()
         self._render_current()
 
@@ -98,8 +208,6 @@ class LLMChatPanel(BoxLayout):
             return
         self.view_node = node
         self._jump_bottom = True
-        self._spoken_token = None
-        self._speech_hold = False
         self._speaker.stop()
         self._render_current()
 
@@ -115,7 +223,6 @@ class LLMChatPanel(BoxLayout):
         if self._error and self._error[0] is node:
             self._error = None
         self.queue = [job for job in self.queue if job["node"] is not node]
-        self._spoken_token = None
         self._speaker.stop()
         self._render_current()
 
@@ -236,8 +343,6 @@ class LLMChatPanel(BoxLayout):
         node_ref, kind, token_ref, header, question, _old = self._partial
         self._partial = (node_ref, kind, token_ref, header, question, text)
         self._status = None
-        if kind != "ask" or question:
-            self._feed_speech(node, token, text, final=False)
         if self.view_node is node or self._current_node() is node:
             self.view_node = node
             self._render_current()
@@ -266,8 +371,6 @@ class LLMChatPanel(BoxLayout):
             ]
         self._store_thread(node, thread)
         self._error = None
-        if kind == "played" or kind == "ask":
-            self._feed_speech(node, token, text, final=True)
         self._render_current()
 
     def _header(self, snapshot):
@@ -304,10 +407,21 @@ class LLMChatPanel(BoxLayout):
     def _render_current(self, *_args):
         node = self.view_node if self.view_node is not None else self._current_node()
         messages = self._display_messages(node) if node is not None else []
+        partial = self._partial if self._partial and self._partial[0] is node and self._partial[5] else None
         lines = []
+        matches = []
         for item in messages:
             kind = "user" if item.get("role") == "user" else "assistant"
-            lines.append((kind, item.get("content") or ""))
+            text = item.get("content") or ""
+            lines.append((kind, text))
+            if partial and kind == "assistant" and text == partial[5]:
+                matches.append(len(lines) - 1)
+        if not partial or not matches:
+            streaming_at = None
+        elif partial[1] == "ask":
+            streaming_at = matches[-1]
+        else:
+            streaming_at = matches[0]
         if self._status and self._status[0] is node:
             key = "llm:waiting-analysis" if self._status[1] == "wait" else "llm:thinking"
             lines.append(("status", i18n._(key)))
@@ -316,16 +430,26 @@ class LLMChatPanel(BoxLayout):
         if not lines:
             lines = [("intro", i18n._("llm:intro"))]
         self.lines = lines
+        self._streaming_at = streaming_at
         self._render()
 
     def _render(self):
         if self.log_label is None:
             return
+        speakable = []
         blocks = []
-        for kind, text in self.lines:
-            body = escape_markup(text)
+        streaming_at = getattr(self, "_streaming_at", None)
+        for index, (kind, text) in enumerate(self.lines):
             if kind == "assistant":
-                body = self._highlight(body)
+                body = assistant_markup(
+                    text,
+                    index != streaming_at,
+                    speakable,
+                    self._speaking_index,
+                    self._speaking_span,
+                )
+            else:
+                body = escape_markup(text)
             if kind == "user":
                 blocks.append(f"[b][color={USER_COLOR}]{escape_markup(i18n._('llm:you'))}[/color][/b]\n{body}")
             elif kind == "assistant":
@@ -334,6 +458,7 @@ class LLMChatPanel(BoxLayout):
                 blocks.append(f"[color={ERROR_COLOR}]{body}[/color]")
             else:
                 blocks.append(f"[color={STATUS_COLOR}]{body}[/color]")
+        self._speakable = speakable
         follow = False
         if self.scroll is not None:
             inner = getattr(self.scroll, "label", None)
@@ -355,59 +480,26 @@ class LLMChatPanel(BoxLayout):
             return
         scroll.scroll_y = 0
 
-    def toggle_speech(self):
-        if self.speech_state == "speaking":
-            self._speaker.pause()
+    def read_paragraph(self, ref):
+        """Read the paragraph under the clicked speaker, and nothing after it."""
+        try:
+            index = int(ref)
+            text = self._speakable[index]
+        except (TypeError, ValueError, IndexError):
             return
-        if self.speech_state == "paused":
-            self._speaker.resume()
+        if self.speech_state == "speaking" and index == self._speaking_index and text == self._speaking_span:
+            self._speaker.stop()
             return
         if not self._can_speak():
             self._error = (self.view_node if self.view_node is not None else self._current_node(), i18n._("llm:no-speech"))
             self._render_current()
             return
-        text = self._assistant_text()
-        if not text:
-            return
-        self._speech_hold = True
+        self._speaker.stop(announce=False)
+        self._speaking_index = index
+        self._speaking_span = text
         self._apply_speaker_settings()
-        for sentence in split_sentences(text):
-            self._speaker.enqueue(sentence)
-
-    def _assistant_text(self):
-        parts = [text for kind, text in self.lines if kind == "assistant" and text]
-        return "\n".join(parts).strip()
-
-    def _feed_speech(self, node, token, text, final):
-        if not self._cfg().get("speak") or self._speech_hold and token is self._spoken_token:
-            return
-        if token is not self._spoken_token:
-            self._spoken_token = token
-            self._spoken_index = 0
-            self._speech_hold = False
-            self._speaker.stop()
-        if not text:
-            return
-        if final:
-            pending = text[self._spoken_index :]
-            self._spoken_index = len(text)
-        else:
-            pending, self._spoken_index = completed_sentences(text, self._spoken_index)
-        if not pending.strip():
-            return
-        self._apply_speaker_settings()
-        for sentence in split_sentences(pending):
-            self._speaker.enqueue(sentence)
-
-    def _highlight(self, escaped):
-        span = self._speaking_span
-        if not span:
-            return escaped
-        found = highlight_span(escaped, escape_markup(span))
-        if found is None:
-            return escaped
-        before, mid, after = found
-        return f"{before}[color={SPEECH_COLOR}]{mid}[/color]{after}"
+        self._speaker.enqueue(text)
+        self._render_current()
 
     def _speech_chunk(self, text):
         Clock.schedule_once(lambda _dt, spoken=text: self._apply_speech_chunk(spoken), 0)
@@ -423,6 +515,7 @@ class LLMChatPanel(BoxLayout):
         self.speech_state = state
         if state == "idle":
             self._speaking_span = None
+            self._speaking_index = None
             self._render_current()
 
     def _apply_speaker_settings(self):
@@ -469,7 +562,6 @@ class LLMChatPanel(BoxLayout):
         cfg = cfg or {}
         return {
             "enabled": bool(cfg.get("enabled")),
-            "speak": bool(cfg.get("speak", False)),
             "tts_api_key": (cfg.get("tts_api_key") or "").strip(),
             "tts_speaker": (cfg.get("tts_speaker") or "").strip(),
             "api_base": (cfg.get("api_base") or "").strip(),

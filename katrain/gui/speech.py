@@ -2,6 +2,7 @@
 
 import base64
 import json
+import re
 import time
 import ctypes
 import os
@@ -117,6 +118,26 @@ def split_sentences(text):
             parts.append(piece)
         start = end
     return parts
+
+
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
+_TRAILING_BREAK = re.compile(r"\n[ \t]*\n[ \t]*$")
+
+
+def paragraph_parts(text, complete):
+    """Split commentary into a finished part and the part still being written.
+
+    A blank line closes a paragraph. While the reply is still arriving, the
+    last open paragraph is not finished, so it is not given a speaker yet.
+    """
+    raw = text or ""
+    pieces = [part.strip() for part in _PARAGRAPH_BREAK.split(raw)]
+    pieces = [part for part in pieces if part]
+    if not pieces:
+        return [], ""
+    if complete or _TRAILING_BREAK.search(raw):
+        return pieces, ""
+    return pieces[:-1], pieces[-1]
 
 
 def highlight_span(text, span):
@@ -297,7 +318,7 @@ class SpeechPlayer:
         self._gate = threading.Event()
         self._gate.set()
 
-    def stop(self):
+    def stop(self, announce=True):
         with self._lock:
             self._token += 1
             self._paused = False
@@ -322,8 +343,9 @@ class SpeechPlayer:
             _cancel_speech_dispatcher()
         except (OSError, subprocess.TimeoutExpired):
             pass
-        self._emit("idle")
-        self._emit_chunk(None)
+        if announce:
+            self._emit("idle")
+            self._emit_chunk(None)
 
     def pause(self):
         with self._lock:
