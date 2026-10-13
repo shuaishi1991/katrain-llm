@@ -71,7 +71,6 @@ class LLMChatPanel(BoxLayout):
         self._spoken_token = None
         self._speech_hold = False
         self._speaking_span = None
-        self.warned_config = False
         self._speaker = SpeechPlayer(on_state=self._speech_state, on_chunk=self._speech_chunk)
         Clock.schedule_interval(self._pump, 0.4)
         Clock.schedule_once(self._render_current, 0)
@@ -92,7 +91,6 @@ class LLMChatPanel(BoxLayout):
         self._spoken_token = None
         self._speech_hold = False
         self._speaker.stop()
-        self.warned_config = False
         self._render_current()
 
     def show_node(self, node):
@@ -121,21 +119,6 @@ class LLMChatPanel(BoxLayout):
         self._speaker.stop()
         self._render_current()
 
-    def enqueue_move(self, node):
-        katrain = self._katrain()
-        if katrain is None or getattr(katrain, "contributing", False):
-            return
-        cfg = self._cfg()
-        if not cfg.get("enabled") or not cfg.get("auto_comment", True):
-            return
-        if node is None or self._has_commentary(node):
-            return
-        if any(job["node"] is node and job["kind"] == "played" for job in self.queue):
-            return
-        if self._partial and self._partial[0] is node and self._partial[1] == "played":
-            return
-        self.queue.append({"kind": "played", "node": node, "text": "", "since": time.time(), "auto": True})
-
     def explain_current(self, mode="played"):
         katrain = self._katrain()
         if katrain is None or not getattr(katrain, "game", None):
@@ -147,7 +130,6 @@ class LLMChatPanel(BoxLayout):
                 "node": katrain.game.current_node,
                 "text": "",
                 "since": time.time(),
-                "auto": False,
             }
         )
 
@@ -161,7 +143,7 @@ class LLMChatPanel(BoxLayout):
         katrain = self._katrain()
         node = katrain.game.current_node if katrain and katrain.game else None
         self._focus_tab()
-        self.queue.append({"kind": "ask", "node": node, "text": text, "since": time.time(), "auto": False})
+        self.queue.append({"kind": "ask", "node": node, "text": text, "since": time.time()})
 
     def _pump(self, _dt):
         if self.busy or not self.queue:
@@ -170,9 +152,6 @@ class LLMChatPanel(BoxLayout):
         cfg = self._cfg()
         if not settings_ready(cfg):
             self.queue.pop(0)
-            if job["auto"] and self.warned_config:
-                return
-            self.warned_config = True
             self._focus_tab()
             self._error = (job["node"], i18n._("llm:not-configured"))
             self._render_current()
@@ -490,7 +469,6 @@ class LLMChatPanel(BoxLayout):
         cfg = cfg or {}
         return {
             "enabled": bool(cfg.get("enabled")),
-            "auto_comment": bool(cfg.get("auto_comment", True)),
             "speak": bool(cfg.get("speak", False)),
             "tts_api_key": (cfg.get("tts_api_key") or "").strip(),
             "tts_speaker": (cfg.get("tts_speaker") or "").strip(),

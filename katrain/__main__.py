@@ -474,11 +474,6 @@ class KaTrainGui(Screen, KaTrainBase):
         except IllegalMoveException as e:
             self.controls.set_status(f"Illegal Move: {str(e)}", STATUS_ERROR)
 
-    def on_move_played(self, node):
-        if self.contributing or not self.controls or not self.controls.llm_chat:
-            return
-        Clock.schedule_once(lambda _dt, played=node: self.controls.llm_chat.enqueue_move(played), 0)
-
     def _do_analyze_extra(self, mode, **kwargs):
         self.game.analyze_extra(mode, **kwargs)
 

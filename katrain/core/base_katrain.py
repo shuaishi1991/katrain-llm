@@ -92,7 +92,6 @@ class KaTrainBase:
             "api_base": "https://api.openai.com/v1",
             "api_key": "",
             "model": "",
-            "auto_comment": True,
             "speak": False,
             "tts_api_key": "",
             "tts_speaker": "",

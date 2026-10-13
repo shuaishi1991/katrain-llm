@@ -1,4 +1,5 @@
 import json
+import threading
 import urllib.request
 
 from katrain.core.llm import (
@@ -431,6 +432,100 @@ def test_speech_dispatcher_pause_replays_the_current_sentence(monkeypatch):
     assert player._proc is None
     assert player._paused
     player.stop()
+
+
+def test_playback_ends_when_the_player_reports_eof(monkeypatch):
+    import time
+
+    from katrain.gui import speech
+
+    class Player:
+        def __init__(self, path, on_event):
+            self.path = path
+            threading.Timer(0.02, lambda: on_event("eof", "")).start()
+
+        def set_pause(self, paused):
+            return None
+
+        def close_player(self):
+            return None
+
+        def get_metadata(self):
+            return {"duration": 5}
+
+    monkeypatch.setattr(speech, "fetch_doubao_audio", lambda text, api_key, speaker, timeout=60: b"mp3")
+    monkeypatch.setattr(speech, "_open_audio_player", lambda path, on_event: Player(path, on_event))
+    player = speech.SpeechPlayer()
+    player.api_key = "k"
+    player.speaker = "s"
+    started = time.monotonic()
+    assert player._speak_doubao(player._token, "第一句。") is True
+    assert time.monotonic() - started < 1
+
+
+def test_stop_releases_a_player_that_never_reports_eof(monkeypatch):
+    import time
+
+    from katrain.gui import speech
+
+    class Player:
+        def __init__(self, path, on_event):
+            return None
+
+        def set_pause(self, paused):
+            return None
+
+        def close_player(self):
+            return None
+
+        def get_metadata(self):
+            return {"duration": 30}
+
+    monkeypatch.setattr(speech, "fetch_doubao_audio", lambda text, api_key, speaker, timeout=60: b"mp3")
+    monkeypatch.setattr(speech, "_open_audio_player", lambda path, on_event: Player(path, on_event))
+    player = speech.SpeechPlayer()
+    player.api_key = "k"
+    player.speaker = "s"
+    result = []
+
+    def work():
+        result.append(player._speak_doubao(player._token, "第一句。"))
+
+    threading.Thread(target=work).start()
+    deadline = time.monotonic() + 2
+    while player._player is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+    player.stop()
+    deadline = time.monotonic() + 2
+    while not result and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert result == [True]
+
+
+def test_a_sentence_queued_after_playback_ends_is_still_spoken(monkeypatch):
+    import time
+
+    from katrain.gui import speech
+
+    spoken = []
+    monkeypatch.setattr(speech, "doubao_ready", lambda api_key, speaker: True)
+    monkeypatch.setattr(speech.SpeechPlayer, "_speak", lambda self, token, text: spoken.append(text))
+    player = speech.SpeechPlayer()
+    player.api_key = "k"
+    player.speaker = "s"
+    assert player.enqueue("第一句。")
+    deadline = time.time() + 2
+    while spoken != ["第一句。"] and time.time() < deadline:
+        time.sleep(0.02)
+    assert spoken == ["第一句。"]
+    deadline = time.time() + 2
+    while player._worker is not None and player._worker.is_alive() and time.time() < deadline:
+        time.sleep(0.02)
+    assert player.enqueue("第二句。")
+    deadline = time.time() + 2
+    while spoken != ["第一句。", "第二句。"] and time.time() < deadline:
+        time.sleep(0.02)
+    assert spoken == ["第一句。", "第二句。"]
 
 
 def test_settings_require_endpoint_key_and_model():

@@ -129,6 +129,24 @@ def highlight_span(text, span):
     return text[:index], text[index : index + len(span)], text[index + len(span) :]
 
 
+def _open_audio_player(path, on_event):
+    """Open an audio file. The player calls on_event('eof', '') when the sound ends."""
+    from ffpyplayer.player import MediaPlayer
+
+    return MediaPlayer(path, callback=on_event, ff_opts={"vn": True, "sn": True})
+
+
+def _audio_duration(player):
+    """File length in seconds, once the player has read it."""
+    try:
+        duration = (player.get_metadata() or {}).get("duration")
+    except Exception:
+        return None
+    if isinstance(duration, (int, float)) and duration > 0:
+        return duration
+    return None
+
+
 DOUBAO_TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 DOUBAO_RESOURCE_ID = "seed-tts-2.0"
 
@@ -377,7 +395,10 @@ class SpeechPlayer:
                 if self._paused:
                     continue
                 if not self._queue:
-                    idle = self._worker is threading.current_thread()
+                    # Release this thread before unlocking. A sentence that arrives
+                    # as the queue runs dry must be able to start another thread.
+                    if self._worker is threading.current_thread():
+                        self._worker = None
                     break
                 token, text = self._queue.pop(0)
                 if token != self._token:
@@ -387,7 +408,9 @@ class SpeechPlayer:
             with self._lock:
                 if self._current_text == text:
                     self._current_text = None
-        if idle:
+        with self._lock:
+            still_idle = self._worker is None and not self._queue
+        if still_idle:
             self._emit("idle")
             self._emit_chunk(None)
 
@@ -491,10 +514,16 @@ class SpeechPlayer:
                 if self._paused and token == self._token:
                     self._queue.insert(0, (token, text))
                 return True
-        try:
-            from ffpyplayer.player import MediaPlayer
+        finished = threading.Event()
 
-            player = MediaPlayer(path, ff_opts={"vn": True, "sn": True})
+        def on_event(selector, _value):
+            # The player reports eof when the audio itself has finished.
+            # get_frame() only reports that for a file that contains video.
+            if selector in ("eof", b"eof"):
+                finished.set()
+
+        try:
+            player = _open_audio_player(path, on_event)
         except Exception:
             try:
                 os.remove(path)
@@ -514,7 +543,10 @@ class SpeechPlayer:
             self._player = player
         self._emit_chunk(text)
         paused = False
-        while True:
+        played = 0.0
+        mark = time.monotonic()
+        while not finished.wait(0.05):
+            now = time.monotonic()
             with self._lock:
                 if token != self._token or self._player is not player:
                     break
@@ -525,22 +557,16 @@ class SpeechPlayer:
                 except Exception:
                     break
                 paused = want_pause
-            if want_pause:
-                time.sleep(0.05)
-                continue
-            try:
-                _frame, val = player.get_frame()
-            except Exception:
-                break
-            if val == "eof":
-                break
-            if val == "paused":
-                time.sleep(0.05)
-                continue
-            if isinstance(val, (int, float)) and val > 0:
-                time.sleep(min(val, 0.1))
-            else:
-                time.sleep(0.01)
+            if not paused:
+                played += now - mark
+                duration = _audio_duration(player)
+                # The eof callback is the end of the sentence. This limit only
+                # moves on if that callback never arrives.
+                if duration is not None and played >= duration + 2:
+                    break
+                if duration is None and played >= 10:
+                    break
+            mark = now
         with self._lock:
             owned = self._player is player
             if owned:

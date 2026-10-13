@@ -556,9 +556,6 @@ class Game(BaseGame):
         played_node = super().play(move, ignore_ko=ignore_ko, expected_node=expected_node)
         if played_node is None:
             return None
-        hook = getattr(self.katrain, "on_move_played", None)
-        if hook:
-            hook(played_node)
         if analyze:
             if self.region_of_interest:
                 played_node.analyze(self.engines[played_node.next_player], analyze_fast=True)
