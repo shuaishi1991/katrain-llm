@@ -507,6 +507,30 @@ class SpeechPlayer:
                 return False
             return self._prepared.pop(key, None)
 
+    def _let_sound_card_finish(self, player, token):
+        """Wait until the card has played the tail, then the caller closes it.
+
+        The end callback arrives when the decoder has nothing left. The card
+        is still playing the last part of the sentence. Closing at that
+        moment cuts the waveform, which is the click at the end. The playback
+        clock reaches the file length once that tail has been heard.
+        """
+        duration = _audio_duration(player)
+        if duration is None:
+            return
+        deadline = time.monotonic() + 0.4
+        while time.monotonic() < deadline:
+            with self._lock:
+                if token != self._token or self._player is not player:
+                    return
+            try:
+                heard = player.get_pts()
+            except Exception:
+                return
+            if isinstance(heard, (int, float)) and heard >= duration:
+                return
+            time.sleep(0.02)
+
     def _speak_doubao(self, token, text):
         """Speak one sentence with Doubao. Returns False when synthesis fails."""
         self._prefetch_next(token)
@@ -582,13 +606,15 @@ class SpeechPlayer:
             if not paused:
                 played += now - mark
                 duration = _audio_duration(player)
-                # The eof callback is the end of the sentence. This limit only
-                # moves on if that callback never arrives.
+                # The eof callback is the end of the decoded audio. This limit
+                # only moves on if that callback never arrives.
                 if duration is not None and played >= duration + 2:
                     break
                 if duration is None and played >= 10:
                     break
             mark = now
+        if finished.is_set():
+            self._let_sound_card_finish(player, token)
         with self._lock:
             owned = self._player is player
             if owned:

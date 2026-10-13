@@ -5,6 +5,11 @@ import os
 import sys
 
 os.environ["KCFG_KIVY_LOG_LEVEL"] = os.environ.get("KCFG_KIVY_LOG_LEVEL", "warning")
+# The input method draws the candidate list itself. If composition is sent
+# into the text box, fcitx only shows pinyin there and no character list.
+# Both values have to be set before SDL creates the input context.
+os.environ["SDL_IME_SHOW_UI"] = "1"
+os.environ["SDL_IME_INTERNAL_EDITING"] = "1"
 
 from kivy.utils import platform as kivy_platform
 

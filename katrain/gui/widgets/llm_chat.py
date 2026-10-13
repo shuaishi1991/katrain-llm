@@ -43,23 +43,26 @@ STATUS_COLOR = to_hexcol(Theme.POINTLOSS_COLOR)
 ERROR_COLOR = to_hexcol(Theme.ERROR_BORDER_COLOR)
 SPEECH_COLOR = to_hexcol([0.96, 0.78, 0.42, 1])
 ICON_COLOR = to_hexcol([0.62, 0.66, 0.70, 1])
-SPEAKER_ICON = "♪"
+SPEAKER_ICON = "[font=speaker.ttf][size=18]\ue000[/size][/font]"
 
 
 def escape_markup(text):
     return (text or "").replace("&", "&amp;").replace("[", "\\[").replace("]", "\\]")
 
 
-def ime_anchor(cursor_x, line_top, line_height, window_height):
+def ime_anchor(cursor_x, line_top, line_height, window_height, candidate_room=220):
     """Caret rectangle for the input method, origin at the top-left of the window.
 
     Kivy measures the line from the bottom of the window. The candidate list
-    uses the other direction. Without this rectangle the candidates open at
-    the corner of the window.
+    opens underneath this rectangle. The question box sits on the bottom edge,
+    so the list is shifted up while the caret is too low to leave room for it.
     """
     height = max(int(line_height), 1)
     top = int(line_top)
-    return int(cursor_x), max(0, int(window_height) - top), height, height
+    y = max(0, int(window_height) - top)
+    if y + height + candidate_room > int(window_height):
+        y = max(0, y - candidate_room)
+    return int(cursor_x), y, height, height
 
 
 class _SDLRect(ctypes.Structure):
@@ -110,22 +113,36 @@ def _sdl_library():
     return None
 
 
+def _enable_candidate_list(library):
+    """Let the input method draw the candidate list beside the caret.
+
+    Sending the composition into the text box makes fcitx show only the
+    pinyin. The list of characters is the input method's own window.
+    """
+    if not hasattr(library, "SDL_SetHint"):
+        return
+    library.SDL_SetHint.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    library.SDL_SetHint.restype = ctypes.c_int
+    library.SDL_SetHint(b"SDL_IME_SHOW_UI", b"1")
+    library.SDL_SetHint(b"SDL_IME_INTERNAL_EDITING", b"1")
+
+
 def place_ime_cursor(cursor_x, line_top, line_height, window_height):
     library = _sdl_library()
     if library is None:
         return
+    _enable_candidate_list(library)
     x, y, width, height = ime_anchor(cursor_x, line_top, line_height, window_height)
     rect = _SDLRect(x, y, width, height)
     library.SDL_SetTextInputRect(ctypes.byref(rect))
 
 
 class ChatInput(TextInput):
-    """One-line question box that can show Chinese input-method text.
+    """One-line question box that can show the chosen Chinese characters.
 
-    The default font has no Chinese glyphs, so the characters being composed
-    never appear. The box also has to be tall enough for a Chinese line, and
-    the caret position has to be handed to the input method or the candidate
-    list opens in the wrong place.
+    The candidate list belongs to the input method. This box only receives a
+    character after it is chosen, so it needs a font that contains Chinese
+    and a caret position the input method can place its list against.
     """
 
     def __init__(self, **kwargs):

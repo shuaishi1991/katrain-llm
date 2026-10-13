@@ -463,6 +463,48 @@ def test_playback_ends_when_the_player_reports_eof(monkeypatch):
     assert time.monotonic() - started < 1
 
 
+def test_the_player_stays_open_until_the_tail_has_been_heard(monkeypatch):
+    from katrain.gui import speech
+
+    class Player:
+        def __init__(self, path, on_event):
+            self.heard = 0.2
+            self.volumes = []
+            self.closed_at = None
+            threading.Timer(0.02, lambda: on_event("eof", "")).start()
+
+        def set_pause(self, paused):
+            return None
+
+        def set_volume(self, level):
+            self.volumes.append(level)
+
+        def get_pts(self):
+            self.heard += 0.3
+            return self.heard
+
+        def close_player(self):
+            self.closed_at = self.heard
+
+        def get_metadata(self):
+            return {"duration": 1.0}
+
+    opened = {}
+
+    def open_player(path, on_event):
+        opened["player"] = Player(path, on_event)
+        return opened["player"]
+
+    monkeypatch.setattr(speech, "fetch_doubao_audio", lambda text, api_key, speaker, timeout=60: b"mp3")
+    monkeypatch.setattr(speech, "_open_audio_player", open_player)
+    player = speech.SpeechPlayer()
+    player.api_key = "k"
+    player.speaker = "s"
+    assert player._speak_doubao(player._token, "第一句。") is True
+    assert opened["player"].closed_at >= 1.0
+    assert opened["player"].volumes == []
+
+
 def test_stop_releases_a_player_that_never_reports_eof(monkeypatch):
     import time
 
@@ -541,10 +583,13 @@ def test_a_finished_paragraph_gets_a_speaker_and_the_open_one_does_not():
     markup = assistant_markup("这一手。\n\n下一手还在写", False, speakable, None, None)
     assert speakable == ["这一手。"]
     assert "[ref=0]" in markup
+    assert "speaker.ttf" in markup
+    assert "♪" not in markup
     assert "下一手还在写" in markup
     assert markup.count("[ref=") == 1
 
-    assert ime_anchor(40, 100, 24, 800) == (40, 700, 24, 24)
+    assert ime_anchor(40, 750, 24, 800) == (40, 50, 24, 24)
+    assert ime_anchor(40, 100, 24, 800) == (40, 480, 24, 24)
     assert ime_anchor(40, 900, 24, 800)[1] == 0
 
 
