@@ -1247,12 +1247,18 @@
             LabelledCheckBox:
                 input_property: 'llm/auto_comment'
         DescriptionLabel:
-            text: i18n._('llm:voice')
+            text: i18n._('llm:tts-key')
         AnchorLayout:
-            LabelledSpinner:
-                input_property: 'llm/voice'
-                font_size: sp(Theme.DESC_FONT_SIZE)
-                value_refs: ['llm:voice:xiaoxiao', 'llm:voice:yunxi', 'llm:voice:xiaoyi', 'llm:voice:system']
+            LabelledTextInput:
+                input_property: 'llm/tts_api_key'
+                password: True
+                write_tab: False
+        DescriptionLabel:
+            text: i18n._('llm:tts-speaker')
+        AnchorLayout:
+            LabelledTextInput:
+                input_property: 'llm/tts_speaker'
+                hint_text: 'zh_female_vv_uranus_bigtts'
         DescriptionLabel:
             text: i18n._('llm:speak')
         AnchorLayout:

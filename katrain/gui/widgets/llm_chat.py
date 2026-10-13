@@ -24,6 +24,7 @@ from katrain.core.llm import (
 from katrain.gui.speech import (
     SpeechPlayer,
     completed_sentences,
+    doubao_ready,
     highlight_span,
     should_follow_scroll,
     speech_backend,
@@ -381,7 +382,7 @@ class LLMChatPanel(BoxLayout):
         if self.speech_state == "paused":
             self._speaker.resume()
             return
-        if speech_backend() is None:
+        if not self._can_speak():
             self._error = (self.view_node if self.view_node is not None else self._current_node(), i18n._("llm:no-speech"))
             self._render_current()
             return
@@ -389,8 +390,7 @@ class LLMChatPanel(BoxLayout):
         if not text:
             return
         self._speech_hold = True
-        self._speaker.lang = i18n.lang or "en"
-        self._speaker.voice = self._cfg().get("voice") or "llm:voice:xiaoxiao"
+        self._apply_speaker_settings()
         for sentence in split_sentences(text):
             self._speaker.enqueue(sentence)
 
@@ -415,8 +415,7 @@ class LLMChatPanel(BoxLayout):
             pending, self._spoken_index = completed_sentences(text, self._spoken_index)
         if not pending.strip():
             return
-        self._speaker.lang = i18n.lang or "en"
-        self._speaker.voice = self._cfg().get("voice") or "llm:voice:xiaoxiao"
+        self._apply_speaker_settings()
         for sentence in split_sentences(pending):
             self._speaker.enqueue(sentence)
 
@@ -445,6 +444,16 @@ class LLMChatPanel(BoxLayout):
         if state == "idle":
             self._speaking_span = None
             self._render_current()
+
+    def _apply_speaker_settings(self):
+        cfg = self._cfg()
+        self._speaker.lang = i18n.lang or "en"
+        self._speaker.api_key = cfg.get("tts_api_key") or ""
+        self._speaker.speaker = cfg.get("tts_speaker") or ""
+
+    def _can_speak(self):
+        self._apply_speaker_settings()
+        return doubao_ready(self._speaker.api_key, self._speaker.speaker) or speech_backend() is not None
 
     def _store_thread(self, node, thread):
         node.llm_thread = thread
@@ -482,7 +491,8 @@ class LLMChatPanel(BoxLayout):
             "enabled": bool(cfg.get("enabled")),
             "auto_comment": bool(cfg.get("auto_comment", True)),
             "speak": bool(cfg.get("speak", False)),
-            "voice": cfg.get("voice") or "llm:voice:xiaoxiao",
+            "tts_api_key": (cfg.get("tts_api_key") or "").strip(),
+            "tts_speaker": (cfg.get("tts_speaker") or "").strip(),
             "api_base": (cfg.get("api_base") or "").strip(),
             "api_key": (cfg.get("api_key") or "").strip(),
             "model": (cfg.get("model") or "").strip(),

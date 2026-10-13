@@ -1,5 +1,7 @@
-"""Read commentary aloud with the operating system's speech tools."""
+"""Read commentary aloud with Doubao speech, or the operating system voice."""
 
+import base64
+import json
 import time
 import ctypes
 import os
@@ -9,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
+import urllib.request
 
 _SENTENCE_END = set("。！？!?；;\n")
 
@@ -125,26 +129,82 @@ def highlight_span(text, span):
     return text[:index], text[index : index + len(span)], text[index + len(span) :]
 
 
-_NEURAL_VOICES = {
-    "llm:voice:xiaoxiao": "zh-CN-XiaoxiaoNeural",
-    "llm:voice:yunxi": "zh-CN-YunxiNeural",
-    "llm:voice:xiaoyi": "zh-CN-XiaoyiNeural",
-}
+DOUBAO_TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+DOUBAO_RESOURCE_ID = "seed-tts-2.0"
 
 
-def neural_voice_name(voice):
-    """Edge neural voice for a settings key. System speech has no neural voice."""
-    if voice in (None, "llm:voice:system"):
-        return None
-    return _NEURAL_VOICES.get(voice, _NEURAL_VOICES["llm:voice:xiaoxiao"])
+class DoubaoSpeechError(Exception):
+    """The Doubao speech request did not return audio."""
 
 
-def _edge_tts_available():
+def doubao_ready(api_key, speaker):
+    """Both the key and a voice id are required before calling Doubao."""
+    return bool((api_key or "").strip() and (speaker or "").strip())
+
+
+def doubao_payload(text, speaker):
+    """One finished sentence. speech_rate 0 is the service's normal reading pace."""
+    return {
+        "req_params": {
+            "text": text,
+            "speaker": speaker,
+            "audio_params": {"format": "mp3", "sample_rate": 24000, "speech_rate": 0},
+        }
+    }
+
+
+def audio_from_doubao_event(payload):
+    """Audio bytes from one streamed event. An event may carry no audio."""
+    code = payload.get("code", 0)
+    if code not in (0, 20000000):
+        raise DoubaoSpeechError(payload.get("message") or f"speech {code}")
+    data = payload.get("data")
+    if not data:
+        return b""
     try:
-        import edge_tts  # noqa: F401
-    except ImportError:
-        return False
-    return True
+        return base64.b64decode(data)
+    except (ValueError, TypeError) as exc:
+        raise DoubaoSpeechError("bad audio") from exc
+
+
+def audio_from_doubao_body(raw):
+    """Join the mp3 pieces from a body of JSON lines."""
+    audio = bytearray()
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DoubaoSpeechError("bad response") from exc
+        audio.extend(audio_from_doubao_event(payload))
+    if not audio:
+        raise DoubaoSpeechError("no audio")
+    return bytes(audio)
+
+
+def fetch_doubao_audio(text, api_key, speaker, timeout=60):
+    """Request one sentence and return its mp3 bytes."""
+    body = json.dumps(doubao_payload(text, speaker), ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        DOUBAO_TTS_URL,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Api-Key": api_key.strip(),
+            "X-Api-Resource-Id": DOUBAO_RESOURCE_ID,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        raise DoubaoSpeechError(f"HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise DoubaoSpeechError("network") from exc
+    return audio_from_doubao_body(raw.decode("utf-8", errors="replace"))
 
 
 def _system_backend():
@@ -159,23 +219,8 @@ def _system_backend():
     return None
 
 
-def speech_backend(voice=None):
-    if neural_voice_name(voice) and _edge_tts_available():
-        return "neural"
+def speech_backend():
     return _system_backend()
-
-
-def _write_neural_audio(text, voice, path):
-    import asyncio
-
-    import edge_tts
-
-    name = neural_voice_name(voice)
-
-    async def _save():
-        await edge_tts.Communicate(text, name).save(path)
-
-    asyncio.run(_save())
 
 
 def _hidden_window_kwargs():
@@ -217,7 +262,10 @@ class SpeechPlayer:
 
     def __init__(self, on_state=None, on_chunk=None):
         self.lang = "en"
-        self.voice = "llm:voice:xiaoxiao"
+        self.api_key = ""
+        self.speaker = ""
+        self._prepared = {}
+        self._preparing = set()
         self._on_state = on_state
         self._on_chunk = on_chunk
         self._token = 0
@@ -242,7 +290,15 @@ class SpeechPlayer:
             self._proc = None
             player = self._player
             self._player = None
+            prepared = list(self._prepared.values())
+            self._prepared.clear()
+            self._preparing.clear()
         self._close_player(player)
+        for path in prepared:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         self._kill(proc)
         try:
             _cancel_speech_dispatcher()
@@ -302,7 +358,7 @@ class SpeechPlayer:
 
     def enqueue(self, text):
         text = (text or "").strip()
-        if not text or speech_backend(self.voice) is None:
+        if not text or not (doubao_ready(self.api_key, self.speaker) or speech_backend()):
             return False
         with self._lock:
             self._queue.append((self._token, text))
@@ -343,18 +399,89 @@ class SpeechPlayer:
         except Exception:
             pass
 
-    def _speak_neural(self, token, text):
-        """Speak with a neural voice. Returns False when synthesis fails."""
-        handle, path = tempfile.mkstemp(prefix="katrain-speech-", suffix=".mp3")
-        os.close(handle)
-        try:
-            _write_neural_audio(text, self.voice, path)
-        except Exception:
+    def _prefetch_next(self, token):
+        """Synthesize the next sentence while this one is playing."""
+        if not doubao_ready(self.api_key, self.speaker):
+            return
+        with self._lock:
+            nxt = next((item for item in self._queue if item[0] == token), None)
+            if nxt is None or nxt in self._prepared or nxt in self._preparing:
+                return
+            self._preparing.add(nxt)
+            api_key = self.api_key
+            speaker = self.speaker
+        _token, text = nxt
+
+        def work():
+            handle, path = tempfile.mkstemp(prefix="katrain-speech-", suffix=".mp3")
+            os.close(handle)
             try:
-                os.remove(path)
-            except OSError:
-                pass
-            return False
+                audio = fetch_doubao_audio(text, api_key, speaker)
+                with open(path, "wb") as output:
+                    output.write(audio)
+            except (DoubaoSpeechError, OSError):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                with self._lock:
+                    self._preparing.discard(nxt)
+                return
+            with self._lock:
+                self._preparing.discard(nxt)
+                if self._token == token:
+                    self._prepared[nxt] = path
+                else:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _wait_prepared(self, token, text):
+        """Use audio that is already being fetched, so the sentence is not billed twice.
+
+        Returns the file path, None when nothing is in flight, or False when this
+        reading was stopped.
+        """
+        key = (token, text)
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            with self._lock:
+                if token != self._token:
+                    return False
+                if key in self._prepared:
+                    return self._prepared.pop(key)
+                preparing = key in self._preparing
+            if not preparing:
+                return None
+            time.sleep(0.05)
+        with self._lock:
+            if token != self._token:
+                return False
+            return self._prepared.pop(key, None)
+
+    def _speak_doubao(self, token, text):
+        """Speak one sentence with Doubao. Returns False when synthesis fails."""
+        self._prefetch_next(token)
+        prepared = self._wait_prepared(token, text)
+        if prepared is False:
+            return True
+        path = prepared
+        if path is None:
+            handle, path = tempfile.mkstemp(prefix="katrain-speech-", suffix=".mp3")
+            os.close(handle)
+            try:
+                audio = fetch_doubao_audio(text, self.api_key, self.speaker)
+                with open(path, "wb") as output:
+                    output.write(audio)
+            except (DoubaoSpeechError, OSError):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                return False
         with self._lock:
             if token != self._token or self._paused:
                 try:
@@ -427,7 +554,7 @@ class SpeechPlayer:
         return True
 
     def _speak(self, token, text):
-        if speech_backend(self.voice) == "neural" and self._speak_neural(token, text):
+        if doubao_ready(self.api_key, self.speaker) and self._speak_doubao(token, text):
             return
         backend = _system_backend()
         command = _command(backend, self.lang)

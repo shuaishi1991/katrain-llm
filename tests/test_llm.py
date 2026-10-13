@@ -194,12 +194,30 @@ def test_scroll_follows_only_while_the_reader_stays_at_the_bottom():
 
     assert split_sentences("先说这句。再说那句") == ["先说这句。", "再说那句"]
     assert split_sentences("先说这句。再说那句。") == ["先说这句。", "再说那句。"]
-    from katrain.gui.speech import neural_voice_name
+    import base64
+    import json
 
-    assert neural_voice_name("llm:voice:xiaoxiao") == "zh-CN-XiaoxiaoNeural"
-    assert neural_voice_name("llm:voice:yunxi") == "zh-CN-YunxiNeural"
-    assert neural_voice_name("llm:voice:system") is None
-    assert neural_voice_name(None) is None
+    from katrain.gui.speech import DoubaoSpeechError, audio_from_doubao_body, doubao_payload, doubao_ready
+
+    payload = doubao_payload("这一手。", "zh_female_vv_uranus_bigtts")
+    assert payload["req_params"]["audio_params"]["speech_rate"] == 0
+    assert payload["req_params"]["speaker"] == "zh_female_vv_uranus_bigtts"
+    assert not doubao_ready("", "voice")
+    assert not doubao_ready("key", " ")
+    assert doubao_ready("key", "voice")
+    body = "\n".join(
+        [
+            json.dumps({"code": 0, "data": base64.b64encode(b"mp3").decode("ascii")}),
+            json.dumps({"code": 20000000, "message": "ok", "data": None}),
+        ]
+    )
+    assert audio_from_doubao_body(body) == b"mp3"
+    try:
+        audio_from_doubao_body(json.dumps({"code": 45000000, "message": "fail"}))
+    except DoubaoSpeechError:
+        pass
+    else:
+        raise AssertionError("expected a speech error")
     assert highlight_span("先说这句。再说那句", "再说那句") == ("先说这句。", "再说那句", "")
 
 

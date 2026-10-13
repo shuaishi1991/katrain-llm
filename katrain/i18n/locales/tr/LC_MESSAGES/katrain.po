@@ -1188,6 +1188,12 @@ msgstr "Her hamleyi yorumla"
 msgid "llm:speak"
 msgstr "Yorumu sesli oku"
 
+msgid "llm:tts-key"
+msgstr "Doubao ses API anahtarı"
+
+msgid "llm:tts-speaker"
+msgstr "Ses kimliği"
+
 msgid "llm:voice"
 msgstr "Ses"
 
@@ -1202,6 +1208,24 @@ msgstr "Xiaoyi (doğal kadın)"
 
 msgid "llm:voice:system"
 msgstr "Sistem sesi"
+
+msgid "llm:rate"
+msgstr "Okuma hızı"
+
+msgid "llm:rate:0.75"
+msgstr "0.75×"
+
+msgid "llm:rate:1"
+msgstr "1×"
+
+msgid "llm:rate:1.25"
+msgstr "1.25×"
+
+msgid "llm:rate:1.5"
+msgstr "1.5×"
+
+msgid "llm:rate:2"
+msgstr "2×"
 
 msgid "llm:read"
 msgstr "Oku"

@@ -1174,6 +1174,12 @@ msgstr "Коментувати кожен хід"
 msgid "llm:speak"
 msgstr "Читати вголос"
 
+msgid "llm:tts-key"
+msgstr "API-ключ мовлення Doubao"
+
+msgid "llm:tts-speaker"
+msgstr "ID голосу"
+
 msgid "llm:voice"
 msgstr "Голос"
 
@@ -1188,6 +1194,24 @@ msgstr "Сяої (природний жіночий)"
 
 msgid "llm:voice:system"
 msgstr "Системний голос"
+
+msgid "llm:rate"
+msgstr "Швидкість читання"
+
+msgid "llm:rate:0.75"
+msgstr "0.75×"
+
+msgid "llm:rate:1"
+msgstr "1×"
+
+msgid "llm:rate:1.25"
+msgstr "1.25×"
+
+msgid "llm:rate:1.5"
+msgstr "1.5×"
+
+msgid "llm:rate:2"
+msgstr "2×"
 
 msgid "llm:read"
 msgstr "Читати"

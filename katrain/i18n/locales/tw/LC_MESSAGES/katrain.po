@@ -1092,6 +1092,12 @@ msgstr "每下一手棋自動解說"
 msgid "llm:speak"
 msgstr "語音播報"
 
+msgid "llm:tts-key"
+msgstr "豆包語音 API Key"
+
+msgid "llm:tts-speaker"
+msgstr "音色 ID"
+
 msgid "llm:voice"
 msgstr "朗讀聲音"
 
@@ -1106,6 +1112,24 @@ msgstr "曉伊（自然女聲）"
 
 msgid "llm:voice:system"
 msgstr "系統語音"
+
+msgid "llm:rate"
+msgstr "朗讀速度"
+
+msgid "llm:rate:0.75"
+msgstr "0.75倍"
+
+msgid "llm:rate:1"
+msgstr "1倍"
+
+msgid "llm:rate:1.25"
+msgstr "1.25倍"
+
+msgid "llm:rate:1.5"
+msgstr "1.5倍"
+
+msgid "llm:rate:2"
+msgstr "2倍"
 
 msgid "llm:read"
 msgstr "朗讀"

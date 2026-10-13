@@ -1057,6 +1057,12 @@ msgstr "매 수마다 해설"
 msgid "llm:speak"
 msgstr "음성으로 읽기"
 
+msgid "llm:tts-key"
+msgstr "Doubao 음성 API 키"
+
+msgid "llm:tts-speaker"
+msgstr "음성 ID"
+
 msgid "llm:voice"
 msgstr "낭독 음성"
 
@@ -1071,6 +1077,24 @@ msgstr "샤오이 (자연스러운 여성)"
 
 msgid "llm:voice:system"
 msgstr "시스템 음성"
+
+msgid "llm:rate"
+msgstr "읽기 속도"
+
+msgid "llm:rate:0.75"
+msgstr "0.75배"
+
+msgid "llm:rate:1"
+msgstr "1배"
+
+msgid "llm:rate:1.25"
+msgstr "1.25배"
+
+msgid "llm:rate:1.5"
+msgstr "1.5배"
+
+msgid "llm:rate:2"
+msgstr "2배"
 
 msgid "llm:read"
 msgstr "읽기"

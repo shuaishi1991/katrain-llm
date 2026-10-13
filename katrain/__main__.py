@@ -511,7 +511,7 @@ class KaTrainGui(Screen, KaTrainBase):
     def _do_llm_popup(self):
         if not self.llm_settings_popup:
             self.llm_settings_popup = I18NPopup(
-                title_key="llm:title", size=[dp(720), dp(760)], content=ConfigLLMPopup(self)
+                title_key="llm:title", size=[dp(720), dp(820)], content=ConfigLLMPopup(self)
             ).__self__
             self.llm_settings_popup.content.popup = self.llm_settings_popup
         self.llm_settings_popup.open()

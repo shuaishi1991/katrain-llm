@@ -178,7 +178,8 @@
         "model": "",
         "auto_comment": true,
         "speak": false,
-        "voice": "llm:voice:xiaoxiao"
+        "tts_api_key": "",
+        "tts_speaker": ""
     },
     "ui_state": {
         "restoresize": true,

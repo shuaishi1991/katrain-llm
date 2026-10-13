@@ -23,7 +23,6 @@ dependencies = [
     "chardet>=5.2.0,<6",
     "docutils>=0.21.2",
     "ffpyplayer>=4.5.1",
-    "edge-tts>=6.1.0,<8",
     "urllib3>=2.2.2",
     "kivy>=2.3.1",
     "websocket-client>=1.9.0",

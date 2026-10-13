@@ -1161,6 +1161,12 @@ msgstr "Comment after every move"
 msgid "llm:speak"
 msgstr "Read commentary aloud"
 
+msgid "llm:tts-key"
+msgstr "Doubao speech API key"
+
+msgid "llm:tts-speaker"
+msgstr "Voice ID"
+
 msgid "llm:voice"
 msgstr "Voice"
 
@@ -1175,6 +1181,24 @@ msgstr "Xiaoyi (natural female)"
 
 msgid "llm:voice:system"
 msgstr "System voice"
+
+msgid "llm:rate"
+msgstr "Reading speed"
+
+msgid "llm:rate:0.75"
+msgstr "0.75×"
+
+msgid "llm:rate:1"
+msgstr "1×"
+
+msgid "llm:rate:1.25"
+msgstr "1.25×"
+
+msgid "llm:rate:1.5"
+msgstr "1.5×"
+
+msgid "llm:rate:2"
+msgstr "2×"
 
 msgid "llm:read"
 msgstr "Read"

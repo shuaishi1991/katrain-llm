@@ -1128,6 +1128,12 @@ msgstr "Commenter chaque coup"
 msgid "llm:speak"
 msgstr "Lire le commentaire"
 
+msgid "llm:tts-key"
+msgstr "Clé API vocale Doubao"
+
+msgid "llm:tts-speaker"
+msgstr "Identifiant de voix"
+
 msgid "llm:voice"
 msgstr "Voix"
 
@@ -1142,6 +1148,24 @@ msgstr "Xiaoyi (voix féminine naturelle)"
 
 msgid "llm:voice:system"
 msgstr "Voix du système"
+
+msgid "llm:rate"
+msgstr "Vitesse de lecture"
+
+msgid "llm:rate:0.75"
+msgstr "0.75×"
+
+msgid "llm:rate:1"
+msgstr "1×"
+
+msgid "llm:rate:1.25"
+msgstr "1.25×"
+
+msgid "llm:rate:1.5"
+msgstr "1.5×"
+
+msgid "llm:rate:2"
+msgstr "2×"
 
 msgid "llm:read"
 msgstr "Lire"
