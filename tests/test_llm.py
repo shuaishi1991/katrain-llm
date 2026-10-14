@@ -233,6 +233,15 @@ def test_scroll_follows_only_while_the_reader_stays_at_the_bottom():
         ]
     )
     assert audio_from_doubao_body(body) == b"mp3"
+    repeated = "\n".join(
+        [
+            json.dumps({"code": 0, "data": base64.b64encode(b"head").decode("ascii")}),
+            json.dumps({"code": 0, "data": base64.b64encode(b"tail").decode("ascii")}),
+            json.dumps({"code": 0, "data": base64.b64encode(b"tail").decode("ascii")}),
+            json.dumps({"code": 20000000, "message": "ok", "data": base64.b64encode(b"tail").decode("ascii")}),
+        ]
+    )
+    assert audio_from_doubao_body(repeated) == b"headtail"
     try:
         audio_from_doubao_body(json.dumps({"code": 45000000, "message": "fail"}))
     except DoubaoSpeechError:
@@ -463,31 +472,29 @@ def test_playback_ends_when_the_player_reports_eof(monkeypatch):
     assert time.monotonic() - started < 1
 
 
-def test_the_player_stays_open_until_the_tail_has_been_heard(monkeypatch):
+def test_eof_closes_without_playing_the_tail_again(monkeypatch):
+    import time
+
     from katrain.gui import speech
 
     class Player:
         def __init__(self, path, on_event):
-            self.heard = 0.2
-            self.volumes = []
-            self.closed_at = None
+            self.closed = False
             threading.Timer(0.02, lambda: on_event("eof", "")).start()
 
         def set_pause(self, paused):
             return None
 
-        def set_volume(self, level):
-            self.volumes.append(level)
-
         def get_pts(self):
-            self.heard += 0.3
-            return self.heard
+            # Still well short of the file length. Waiting for this clock
+            # would keep the device open and replay the last words.
+            return 0.2
 
         def close_player(self):
-            self.closed_at = self.heard
+            self.closed = True
 
         def get_metadata(self):
-            return {"duration": 1.0}
+            return {"duration": 5}
 
     opened = {}
 
@@ -500,9 +507,10 @@ def test_the_player_stays_open_until_the_tail_has_been_heard(monkeypatch):
     player = speech.SpeechPlayer()
     player.api_key = "k"
     player.speaker = "s"
+    started = time.monotonic()
     assert player._speak_doubao(player._token, "第一句。") is True
-    assert opened["player"].closed_at >= 1.0
-    assert opened["player"].volumes == []
+    assert opened["player"].closed
+    assert time.monotonic() - started < 0.3
 
 
 def test_stop_releases_a_player_that_never_reports_eof(monkeypatch):
@@ -568,6 +576,16 @@ def test_a_sentence_queued_after_playback_ends_is_still_spoken(monkeypatch):
     while spoken != ["第一句。", "第二句。"] and time.time() < deadline:
         time.sleep(0.02)
     assert spoken == ["第一句。", "第二句。"]
+
+
+def test_dragging_the_upper_box_leaves_room_below():
+    from katrain.gui.widgets.panels import clamp_upper_box_height
+
+    # Pulling the edge up shortens the box, but not so far that it disappears.
+    assert clamp_upper_box_height(40, 800, 70, 80, 220) == 80
+    # Pulling it down cannot eat the room reserved for the boxes underneath.
+    assert clamp_upper_box_height(900, 800, 70, 80, 220) == 510
+    assert clamp_upper_box_height(300, 800, 70, 80, 220) == 300
 
 
 def test_a_finished_paragraph_gets_a_speaker_and_the_open_one_does_not():

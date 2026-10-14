@@ -154,7 +154,7 @@ def _open_audio_player(path, on_event):
     """Open an audio file. The player calls on_event('eof', '') when the sound ends."""
     from ffpyplayer.player import MediaPlayer
 
-    return MediaPlayer(path, callback=on_event, ff_opts={"vn": True, "sn": True})
+    return MediaPlayer(path, callback=on_event, ff_opts={"vn": True, "sn": True, "autoexit": True})
 
 
 def _audio_duration(player):
@@ -193,9 +193,15 @@ def doubao_payload(text, speaker):
 
 
 def audio_from_doubao_event(payload):
-    """Audio bytes from one streamed event. An event may carry no audio."""
+    """Audio bytes from one streamed event. An event may carry no audio.
+
+    Code 0 is an audio piece. Code 20000000 only marks the end. Its data is
+    not another piece; appending it speaks the last words over again.
+    """
     code = payload.get("code", 0)
-    if code not in (0, 20000000):
+    if code == 20000000:
+        return b""
+    if code != 0:
         raise DoubaoSpeechError(payload.get("message") or f"speech {code}")
     data = payload.get("data")
     if not data:
@@ -209,6 +215,7 @@ def audio_from_doubao_event(payload):
 def audio_from_doubao_body(raw):
     """Join the mp3 pieces from a body of JSON lines."""
     audio = bytearray()
+    previous = None
     for line in (raw or "").splitlines():
         line = line.strip()
         if not line:
@@ -217,7 +224,12 @@ def audio_from_doubao_body(raw):
             payload = json.loads(line)
         except json.JSONDecodeError as exc:
             raise DoubaoSpeechError("bad response") from exc
-        audio.extend(audio_from_doubao_event(payload))
+        piece = audio_from_doubao_event(payload)
+        # A repeated piece is the same words again, not new audio.
+        if not piece or piece == previous:
+            continue
+        audio.extend(piece)
+        previous = piece
     if not audio:
         raise DoubaoSpeechError("no audio")
     return bytes(audio)
@@ -507,30 +519,6 @@ class SpeechPlayer:
                 return False
             return self._prepared.pop(key, None)
 
-    def _let_sound_card_finish(self, player, token):
-        """Wait until the card has played the tail, then the caller closes it.
-
-        The end callback arrives when the decoder has nothing left. The card
-        is still playing the last part of the sentence. Closing at that
-        moment cuts the waveform, which is the click at the end. The playback
-        clock reaches the file length once that tail has been heard.
-        """
-        duration = _audio_duration(player)
-        if duration is None:
-            return
-        deadline = time.monotonic() + 0.4
-        while time.monotonic() < deadline:
-            with self._lock:
-                if token != self._token or self._player is not player:
-                    return
-            try:
-                heard = player.get_pts()
-            except Exception:
-                return
-            if isinstance(heard, (int, float)) and heard >= duration:
-                return
-            time.sleep(0.02)
-
     def _speak_doubao(self, token, text):
         """Speak one sentence with Doubao. Returns False when synthesis fails."""
         self._prefetch_next(token)
@@ -613,8 +601,8 @@ class SpeechPlayer:
                 if duration is None and played >= 10:
                     break
             mark = now
-        if finished.is_set():
-            self._let_sound_card_finish(player, token)
+        # Close as soon as the audio reports the end. Leaving the device open
+        # plays the last few words over again.
         with self._lock:
             owned = self._player is player
             if owned:

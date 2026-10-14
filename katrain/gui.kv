@@ -643,7 +643,7 @@
     TimerOrMoveTree:
         id: timer_or_movetree
         size_hint_y: None
-        height: root.timer_box_height + max(0,int(self.mode != MODE_PLAY) * (root.tab_option_height + root.graph_height - graph_panel.height))
+        height: root.upper_box_height
         BoxLayout:
             size_hint_x: EPSILON if self.parent.mode != MODE_PLAY else 1
             opacity: 0 if self.parent.mode != MODE_PLAY else 1
@@ -669,6 +669,9 @@
             min_height: root.timer_box_height
             size_hint_x: EPSILON if self.parent.mode == MODE_PLAY else 1
             opacity: 0 if self.parent.mode == MODE_PLAY else 1
+    EdgeResizeHandle:
+        size_hint_y: None
+        height: dp(10)
     CollapsablePanel:
         id: graph_panel
         content_height: graph.height

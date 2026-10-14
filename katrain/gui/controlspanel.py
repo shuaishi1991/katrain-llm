@@ -1,7 +1,8 @@
 import time
 
 from kivy.clock import Clock
-from kivy.properties import ObjectProperty, OptionProperty
+from kivy.metrics import dp
+from kivy.properties import NumericProperty, ObjectProperty, OptionProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 
@@ -17,7 +18,7 @@ from katrain.core.constants import (
 from katrain.core.lang import rank_label
 from katrain.gui.sound import play_sound, stop_sound
 from katrain.gui.theme import Theme
-from katrain.gui.widgets.panels import AnalysisToggle, CollapsablePanel
+from katrain.gui.widgets.panels import AnalysisToggle, CollapsablePanel, clamp_upper_box_height
 
 
 class PlayAnalyzeSelect(FloatLayout):
@@ -42,6 +43,9 @@ class PlayAnalyzeSelect(FloatLayout):
                 if isinstance(panel, CollapsablePanel)
             },
         }
+        fraction = self.katrain.controls.upper_box_fraction
+        if fraction is not None:
+            self.katrain._config["ui_state"][self.mode]["upper_fraction"] = fraction
         self.katrain.save_config("ui_state")
 
     def load_ui_state(self, _dt=None):
@@ -52,6 +56,8 @@ class PlayAnalyzeSelect(FloatLayout):
         for id, (panel_state, button_state) in state.get("panels", {}).items():
             self.katrain.controls.ids[id].set_option_state(button_state)
             self.katrain.controls.ids[id].state = panel_state
+        self.katrain.controls.upper_box_fraction = state.get("upper_fraction")
+        self.katrain.controls.refresh_upper_box()
 
     def select_mode(self, new_mode):  # actual switch state handler
         if self.mode == new_mode:
@@ -75,6 +81,10 @@ class ControlsPanel(BoxLayout):
     katrain = ObjectProperty(None)
     button_controls = ObjectProperty(None)
     llm_chat = ObjectProperty(None)
+    upper_box_height = NumericProperty(120)
+    # Share of this panel's height taken by the box above the commentary.
+    # Empty until the user drags that box's bottom edge.
+    upper_box_fraction = NumericProperty(None, allownone=True)
 
     def __init__(self, **kwargs):
         super(ControlsPanel, self).__init__(**kwargs)
@@ -85,6 +95,54 @@ class ControlsPanel(BoxLayout):
         self.timer_interval = 0.07
 
         Clock.schedule_interval(self.update_timer, self.timer_interval)
+
+    def on_kv_post(self, base_widget):
+        self.ids.graph_panel.bind(height=self.refresh_upper_box)
+        self.timer_or_movetree.bind(mode=self.refresh_upper_box)
+        self.bind(
+            height=self.refresh_upper_box,
+            available_height=self.refresh_upper_box,
+            upper_box_fraction=self.refresh_upper_box,
+        )
+        self.refresh_upper_box()
+
+    def default_upper_box_height(self):
+        """Height used before the bottom edge has been dragged."""
+        extra = 0
+        if self.timer_or_movetree.mode != MODE_PLAY:
+            extra = max(0, self.tab_option_height + self.graph_height - self.ids.graph_panel.height)
+        return self.timer_box_height + extra
+
+    def refresh_upper_box(self, *_args):
+        if self.upper_box_fraction is None:
+            requested = self.default_upper_box_height()
+        else:
+            requested = self.upper_box_fraction * self.height
+        self.upper_box_height = self._clamp_upper_box(requested)
+
+    def set_upper_box_height(self, height):
+        height = self._clamp_upper_box(height)
+        if self.height:
+            self.upper_box_fraction = height / self.height
+        self.upper_box_height = height
+
+    def save_upper_box_height(self):
+        if self.katrain is None or self.upper_box_fraction is None:
+            return
+        mode = self.timer_or_movetree.mode
+        ui_state = self.katrain._config.setdefault("ui_state", {})
+        bucket = ui_state.setdefault(mode, {})
+        bucket["upper_fraction"] = self.upper_box_fraction
+        self.katrain.save_config("ui_state")
+
+    def _clamp_upper_box(self, height):
+        return clamp_upper_box_height(
+            height,
+            self.height,
+            self.player_box_height,
+            self.timer_box_height,
+            dp(180) + 2 * self.tab_option_height,
+        )
 
     def update_players(self, *_args):
         for bw, player_info in self.katrain.players_info.items():

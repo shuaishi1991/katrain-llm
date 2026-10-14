@@ -43,7 +43,7 @@ STATUS_COLOR = to_hexcol(Theme.POINTLOSS_COLOR)
 ERROR_COLOR = to_hexcol(Theme.ERROR_BORDER_COLOR)
 SPEECH_COLOR = to_hexcol([0.96, 0.78, 0.42, 1])
 ICON_COLOR = to_hexcol([0.62, 0.66, 0.70, 1])
-SPEAKER_ICON = "[font=speaker.ttf][size=18]\ue000[/size][/font]"
+SPEAKER_ICON = "[font=speaker.ttf][size=28]\ue000[/size][/font]"
 
 
 def escape_markup(text):

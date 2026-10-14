@@ -2,6 +2,9 @@
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.window import Window
+from kivy.graphics import Color, Line
+from kivy.metrics import dp
 from kivy.properties import (
     BooleanProperty,
     ListProperty,
@@ -12,6 +15,7 @@ from kivy.properties import (
 )
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
+from kivy.uix.widget import Widget
 
 from katrain.core.constants import (
     AI_STRATEGIES_RECOMMENDED_ORDER,
@@ -340,3 +344,75 @@ class CollapsablePanel(BoxLayout):
         """Children declared in `.kv` become panel contents, shown only while open."""
         self.contents.append(widget)
         self._rebuild()
+
+
+def clamp_upper_box_height(height, panel_height, player_height, minimum, reserved_below):
+    """Keep the box above the commentary between a floor and the room left below it."""
+    maximum = panel_height - player_height - reserved_below
+    if maximum < minimum:
+        maximum = minimum
+    if height < minimum:
+        return minimum
+    if height > maximum:
+        return maximum
+    return height
+
+
+class EdgeResizeHandle(Widget):
+    """The bottom edge of the box above the commentary. Drag it up or down."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._grab = None
+        self._hovering = False
+        with self.canvas:
+            Color(1, 1, 1, 0.45)
+            self._grip = Line(width=1.2)
+        self.bind(pos=self._redraw, size=self._redraw)
+        Window.bind(mouse_pos=self._on_mouse_pos)
+
+    def _redraw(self, *_args):
+        mid = self.y + self.height / 2
+        inset = dp(28)
+        self._grip.points = [self.x + inset, mid, self.right - inset, mid]
+
+    def _on_mouse_pos(self, _window, pos):
+        if self.get_root_window() is None:
+            return
+        hovering = self.collide_point(*pos)
+        if hovering == self._hovering:
+            return
+        self._hovering = hovering
+        if self._grab is None:
+            Window.set_system_cursor("size_ns" if hovering else "arrow")
+
+    def on_touch_down(self, touch):
+        if not self.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        if "button" in touch.profile and touch.button != "left":
+            return super().on_touch_down(touch)
+        panel = self.parent
+        self._grab = (touch.y, panel.upper_box_height)
+        touch.grab(self)
+        return True
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is not self or self._grab is None:
+            return super().on_touch_move(touch)
+        start_y, start_height = self._grab
+        # The top of the box stays put. Moving the finger up raises this edge
+        # and shortens the box, which leaves the height for the boxes below.
+        self.parent.set_upper_box_height(start_height - (touch.y - start_y))
+        return True
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is not self:
+            return super().on_touch_up(touch)
+        touch.ungrab(self)
+        self._grab = None
+        if not self._hovering:
+            Window.set_system_cursor("arrow")
+        save = getattr(self.parent, "save_upper_box_height", None)
+        if save is not None:
+            save()
+        return True
